@@ -6,7 +6,7 @@
 
 ## 功能
 
-- 一鍵新增「繁體中文」語言包（從簡體中文利用 [OpenCC](https://github.com/BYVoid/OpenCC) 自動轉換爲臺灣常用詞彙）
+- 一鍵新增「繁體中文」語言包（從簡體中文利用 [OpenCC](https://github.com/BYVoid/OpenCC) 自動轉換爲臺灣正體）
 - 切換繁體中文語音為英文或中文
 
 ## 版本
