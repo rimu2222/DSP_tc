@@ -31,7 +31,7 @@ def main():
 
 def run_converter():
     # 建立轉換器(簡體 -> 繁體)
-    converter = opencc.OpenCC('s2twp')
+    converter = opencc.OpenCC('s2tw')
 
     # 原始檔案資料夾(簡體)
     input_folder = r"Locale\2052"
