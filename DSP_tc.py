@@ -1,6 +1,12 @@
 import os
 import re
+import sys
 import opencc
+from collections import OrderedDict
+
+# 檔名設定
+REPLACE_LIST_FILENAME = "replace_list.txt"        # 第三欄字串替換：每行「原字串,新字串」
+KEY_VALUE_LIST_FILENAME = "key_value_list.txt"    # 依第一欄覆寫第三欄：每行「key,new_value」
 
 def main():
     while True:
@@ -29,9 +35,113 @@ def main():
         else:
             print("請輸入 1、2、3 或 4。")
 
+def _read_pairs_from_file(path):
+    """讀取取代表：每行「old,new」，回傳 list[(old,new)]。支援空行與 # 註解；只切第一個逗號。"""
+    pairs = []
+    if not path or not os.path.exists(path):
+        return pairs
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            for lineno, raw in enumerate(f, 1):
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "," not in line:
+                    print(f"取代表第 {lineno} 行格式不正確（缺少逗號）：{raw.rstrip()}")
+                    continue
+                old, new = line.split(",", 1)
+                pairs.append((old, new))
+    except Exception as e:
+        print(f"讀取取代表失敗：{path}，原因：{e}")
+    return pairs
+
+def _read_key_map_from_file(path):
+    """讀取 key→new_value 覆寫表：每行「key,new_value」，回傳 OrderedDict[key]=new_value。"""
+    d = OrderedDict()
+    if not path or not os.path.exists(path):
+        return d
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            for lineno, raw in enumerate(f, 1):
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "," not in line:
+                    print(f"key_value 表第 {lineno} 行格式不正確（缺少逗號）：{raw.rstrip()}")
+                    continue
+                k, v = line.split(",", 1)
+                d[k] = v
+    except Exception as e:
+        print(f"讀取 key_value 表失敗：{path}，原因：{e}")
+    return d
+
+def _meipass_dir():
+    """PyInstaller 封裝資源目錄（展開目錄）。未封裝時回傳 None。"""
+    return getattr(sys, "_MEIPASS", None)
+
+def _script_dir():
+    """EXE 同層 / .py 同層目錄。"""
+    return os.path.dirname(os.path.abspath(__file__))
+
+def load_replace_pairs():
+    """
+    載入第三欄字串取代表，優先順序（後者覆蓋前者）：
+    1) 封裝內 replace_list.txt（_MEIPASS）
+    2) EXE 同層 replace_list.txt
+    """
+    merged = OrderedDict()
+
+    meipass = _meipass_dir()
+    if meipass:
+        bundled_path = os.path.join(meipass, REPLACE_LIST_FILENAME)
+        for o, n in _read_pairs_from_file(bundled_path):
+            merged[o] = n
+
+    user_path = os.path.join(_script_dir(), REPLACE_LIST_FILENAME)
+    for o, n in _read_pairs_from_file(user_path):
+        merged[o] = n
+
+    if merged:
+        print(f"已載入 {len(merged)} 筆第三欄字串取代規則。")
+    else:
+        print("未找到第三欄字串取代表，將略過此步驟。")
+    return list(merged.items())
+
+def load_key_overrides():
+    """
+    載入 key→new_value 覆寫表，優先順序（後者覆蓋前者）：
+    1) 封裝內 key_value_list.txt（_MEIPASS）
+    2) EXE 同層 key_value_list.txt
+    """
+    merged = OrderedDict()
+
+    meipass = _meipass_dir()
+    if meipass:
+        bundled_path = os.path.join(meipass, KEY_VALUE_LIST_FILENAME)
+        kv = _read_key_map_from_file(bundled_path)
+        merged.update(kv)
+
+    user_path = os.path.join(_script_dir(), KEY_VALUE_LIST_FILENAME)
+    kv2 = _read_key_map_from_file(user_path)
+    merged.update(kv2)
+
+    if merged:
+        print(f"已載入 {len(merged)} 筆 key→第三欄覆寫規則。")
+    else:
+        print("未找到 key 覆寫表，將略過此步驟。")
+    return merged  # OrderedDict
+
 def run_converter():
-    """將 Locale\\2052 內 UTF-16 LE .txt 的第三欄做簡轉繁，並保留原分隔與行尾"""
-    converter = opencc.OpenCC('s2tw')
+    """
+    將 Locale\\2052 內 UTF-16 LE .txt 的第三欄做簡轉繁，
+    → 套用 replace_list.txt 對第三欄做字串取代，
+    → 若 key 在 key_value_list.txt 內，直接覆寫第三欄（最高優先）。
+    保留原分隔（空白/Tab）與行尾（LF/CRLF）。
+    """
+    converter = opencc.OpenCC('s2twp')
+
+    replace_pairs = load_replace_pairs()     # list[(old,new)]
+    key_overrides = load_key_overrides()     # dict[key]=new_value
 
     input_folder = r"Locale\2052"
     output_folder = r"Locale\1029"
@@ -39,7 +149,7 @@ def run_converter():
 
     os.makedirs(output_folder, exist_ok=True)
 
-    # 產生 Header.txt（保留中間那一行空行，並確保檔尾有換行）
+    # 建立 Header.txt（保留空行與檔尾換行）
     header_content = """[Localization Project]
 Version=1.1
 2052,简体中文,zhCN,zh,1033,1
@@ -65,13 +175,19 @@ parameters=0
         header_file.write(header_content)
     print("\nHeader.txt 已創建於:", header_path)
 
-    # 正則：鍵(非tab/換行) + 分隔1(tab/空白+)
-    #     + 數字 + 分隔2(tab/空白+) + 值(可為空) + 行尾(\n 或 \r\n，可無)
+    # key [空白] number [空白] value [行尾]
     row_pat = re.compile(r'^([^\t\r\n]+)([\t ]+)(\d+)([\t ]+)(.*?)(\r?\n)?$')
 
-    for file in os.listdir(input_folder):
-        if not file.endswith(".txt"):
-            continue
+    if not os.path.isdir(input_folder):
+        print(f"找不到輸入資料夾：{input_folder}")
+        return
+
+    files = [f for f in os.listdir(input_folder) if f.endswith(".txt")]
+    if not files:
+        print(f"{input_folder} 內無 .txt 檔。")
+        return
+
+    for file in files:
         input_path = os.path.join(input_folder, file)
         output_path = os.path.join(output_folder, file)
 
@@ -83,14 +199,24 @@ parameters=0
         for line in lines:
             m = row_pat.match(line)
             if not m:
-                # 例如空行、註解或非標準列：原樣保留
                 out_lines.append(line)
                 continue
 
             key, sep1, number, sep2, value, eol = m.groups()
-            # 只轉第三欄內容
+
+            # 1) 簡轉繁（僅第三欄）
             new_value = converter.convert(value)
-            # 完整保留分隔符與原行尾（若原本沒有行尾，就不要硬加）
+
+            # 2) 依取代表逐條取代（只套用在轉繁後第三欄）
+            for old, new in replace_pairs:
+                if old:
+                    new_value = new_value.replace(old, new)
+
+            # 3) 若 key 在覆寫表，直接覆寫第三欄（最高優先權）
+            if key in key_overrides:
+                new_value = key_overrides[key]
+
+            # 4) 保留原分隔與行尾
             out_lines.append(f"{key}{sep1}{number}{sep2}{new_value}{(eol or '')}")
 
         with open(output_path, "w", encoding="utf-16 LE") as fout:
@@ -100,9 +226,8 @@ parameters=0
 
 def switch_voice(lang="en"):
     """
-    解析 base.txt 每行為「鍵 名 / 數字 / 值」，只替換特定鍵的值。
-    lang="en" 會切到英文資源；lang="zh" 會切回中文資源。
-    保留原始分隔與行尾格式。
+    僅替換 base.txt 指定鍵的值，保留原分隔與行尾。
+    lang='en' → 英文語音；lang='zh' → 中文語音
     """
     base_path = r"Locale\1029\base.txt"
     if not os.path.exists(base_path):
@@ -114,7 +239,6 @@ def switch_voice(lang="en"):
 
     row_pat = re.compile(r'^([^\t\r\n]+)([\t ]+)(\d+)([\t ]+)(.*?)(\r?\n)?$')
 
-    # 兩組目標值
     value_map_en = {
         "ImageLogo0": "UI/Textures/dsp-logo-en",
         "ImageLogo1": "UI/Textures/dsp-logo-flat-en",
@@ -139,7 +263,6 @@ def switch_voice(lang="en"):
             continue
 
         key, sep1, number, sep2, value, eol = m.groups()
-        # 有在表上的鍵才改第三欄；其餘照舊
         if key in value_map:
             value = value_map[key]
         out_lines.append(f"{key}{sep1}{number}{sep2}{value}{(eol or '')}")
