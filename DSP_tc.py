@@ -30,22 +30,16 @@ def main():
             print("請輸入 1、2、3 或 4。")
 
 def run_converter():
-    # 建立轉換器(簡體 -> 繁體)
+    """將 Locale\\2052 內 UTF-16 LE .txt 的第三欄做簡轉繁，並保留原分隔與行尾"""
     converter = opencc.OpenCC('s2tw')
 
-    # 原始檔案資料夾(簡體)
     input_folder = r"Locale\2052"
-
-    # 輸出資料夾(繁體)
     output_folder = r"Locale\1029"
-
-    # Header.txt 路徑
     header_path = r"Locale\Header.txt"
 
-    # 如果輸出資料夾不存在,就自動建立
     os.makedirs(output_folder, exist_ok=True)
 
-    # 創建/覆蓋 Header.txt（保留中間那一行空行，並確保檔尾有換行）
+    # 產生 Header.txt（保留中間那一行空行，並確保檔尾有換行）
     header_content = """[Localization Project]
 Version=1.1
 2052,简体中文,zhCN,zh,1033,1
@@ -66,34 +60,41 @@ parameters=0
 [user]=-9
 """
     with open(header_path, "w", encoding="utf-8", newline="\n") as header_file:
-        # 若最末無換行，補上一個
         if not header_content.endswith("\n"):
             header_content += "\n"
         header_file.write(header_content)
     print("\nHeader.txt 已創建於:", header_path)
 
-    # 處理轉換檔案
+    # 正則：鍵(非tab/換行) + 分隔1(tab/空白+)
+    #     + 數字 + 分隔2(tab/空白+) + 值(可為空) + 行尾(\n 或 \r\n，可無)
+    row_pat = re.compile(r'^([^\t\r\n]+)([\t ]+)(\d+)([\t ]+)(.*?)(\r?\n)?$')
+
     for file in os.listdir(input_folder):
-        if file.endswith(".txt"):
-            input_path = os.path.join(input_folder, file)
-            output_path = os.path.join(output_folder, file)
+        if not file.endswith(".txt"):
+            continue
+        input_path = os.path.join(input_folder, file)
+        output_path = os.path.join(output_folder, file)
 
-            print(f"正在處理：{file}")
-            with open(input_path, "r", encoding="utf-16 LE") as fin:
-                lines = fin.readlines()
+        print(f"正在處理：{file}")
+        with open(input_path, "r", encoding="utf-16 LE") as fin:
+            lines = fin.readlines()
 
-            converted_lines = []
-            for line in lines:
-                parts = line.split('\t', 2)
-                if len(parts) == 3:
-                    parts[2] = converter.convert(parts[2])
-                    converted_line = '\t'.join(parts)
-                else:
-                    converted_line = line
-                converted_lines.append(converted_line)
+        out_lines = []
+        for line in lines:
+            m = row_pat.match(line)
+            if not m:
+                # 例如空行、註解或非標準列：原樣保留
+                out_lines.append(line)
+                continue
 
-            with open(output_path, "w", encoding="utf-16 LE") as fout:
-                fout.writelines(converted_lines)
+            key, sep1, number, sep2, value, eol = m.groups()
+            # 只轉第三欄內容
+            new_value = converter.convert(value)
+            # 完整保留分隔符與原行尾（若原本沒有行尾，就不要硬加）
+            out_lines.append(f"{key}{sep1}{number}{sep2}{new_value}{(eol or '')}")
+
+        with open(output_path, "w", encoding="utf-16 LE") as fout:
+            fout.writelines(out_lines)
 
     print("\n繁體中文新增完成，結果已輸出到:", output_folder)
 
@@ -101,6 +102,7 @@ def switch_voice(lang="en"):
     """
     解析 base.txt 每行為「鍵 名 / 數字 / 值」，只替換特定鍵的值。
     lang="en" 會切到英文資源；lang="zh" 會切回中文資源。
+    保留原始分隔與行尾格式。
     """
     base_path = r"Locale\1029\base.txt"
     if not os.path.exists(base_path):
@@ -110,7 +112,7 @@ def switch_voice(lang="en"):
     with open(base_path, "r", encoding="utf-16 LE") as f:
         lines = f.readlines()
 
-    row_pat = re.compile(r'^(\S+)\s+(\d+)\s+(.*?)(\r?\n)?$')
+    row_pat = re.compile(r'^([^\t\r\n]+)([\t ]+)(\d+)([\t ]+)(.*?)(\r?\n)?$')
 
     # 兩組目標值
     value_map_en = {
@@ -135,11 +137,12 @@ def switch_voice(lang="en"):
         if not m:
             out_lines.append(line)
             continue
-        key, number, value, newline = m.group(1), m.group(2), m.group(3), m.group(4) or "\n"
+
+        key, sep1, number, sep2, value, eol = m.groups()
+        # 有在表上的鍵才改第三欄；其餘照舊
         if key in value_map:
             value = value_map[key]
-        # 規範化輸出格式（鍵 \t\t 數字 \t 值）
-        out_lines.append(f"{key}\t\t{number}\t{value}{newline}")
+        out_lines.append(f"{key}{sep1}{number}{sep2}{value}{(eol or '')}")
 
     with open(base_path, "w", encoding="utf-16 LE") as f:
         f.writelines(out_lines)
