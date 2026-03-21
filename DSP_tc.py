@@ -152,18 +152,20 @@ def run_converter():
     # 建立 Header.txt（保留空行與檔尾換行）
     header_content = """[Localization Project]
 Version=1.1
-2052,简体中文,zhCN,zh,1033,1
-1033,English,enUS,en,2052,0
-1036,français,frFR,fr,1033,0,0
-1031,Deutsch,deDE,de,1033,0,0
-1041,日本語,jaJA,ja,1033,1,0
-1042,한국어,koKO,ko,1033,1,0
+2052,简体中文,zh-CN,zh,1033,1
+1033,English,en-US,en,2052,0
+1036,français,fr-FR,fr,1033,0,0
+1031,Deutsch,de-DE,de,1033,0,0
+1041,日本語,ja-JA,ja,1033,1,0
+1042,한국어,ko-KO,ko,1033,1,0
+3082,Español,es-ES,es,1033,0,0
 1029,繁體中文,zhTW,zh_TW,1033,1
 
 base=0
 combat=0
 creation=0
 prototype=-1
+keys=0
 dictionary=3
 parameters=0
 [outsource]=-6
