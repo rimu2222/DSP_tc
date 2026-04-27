@@ -16,7 +16,8 @@ def main():
         print("1. 新增繁體中文")
         print("2. 選繁體中文時語音改為英文語音")
         print("3. 選繁體中文時恢復為中文語音")
-        print("4. 離開程式")
+        print("4. 選繁體中文時語音改為日文語音")
+        print("5. 離開程式")
         print("===============")
         choice = input("請輸入選項: ").strip()
 
@@ -30,10 +31,13 @@ def main():
             switch_voice(lang="zh")
             input("\n繁體中文已恢復為中文語音。按 Enter 返回主選單...")
         elif choice == "4":
+            switch_voice(lang="ja")
+            input("\n繁體中文改為使用日文語音。按 Enter 返回主選單...")
+        elif choice == "5":
             print("程式已結束。")
             break
         else:
-            print("請輸入 1、2、3 或 4。")
+            print("請輸入 1、2、3、4 或 5。")
 
 def _read_pairs_from_file(path):
     """讀取取代表：每行「old,new」，回傳 list[(old,new)]。支援空行與 # 註解；只切第一個逗號。"""
@@ -137,6 +141,7 @@ def run_converter():
     → 套用 replace_list.txt 對第三欄做字串取代，
     → 若 key 在 key_value_list.txt 內，直接覆寫第三欄（最高優先）。
     保留原分隔（空白/Tab）與行尾（LF/CRLF）。
+    修改原有 Header.txt 加入繁體中文語系。
     """
     converter = opencc.OpenCC('s2twp')
 
@@ -149,33 +154,33 @@ def run_converter():
 
     os.makedirs(output_folder, exist_ok=True)
 
-    # 建立 Header.txt（保留空行與檔尾換行）
-    header_content = """[Localization Project]
-Version=1.1
-2052,简体中文,zh-CN,zh,1033,1
-1033,English,en-US,en,2052,0
-1036,français,fr-FR,fr,1033,0,0
-1031,Deutsch,de-DE,de,1033,0,0
-1041,日本語,ja-JA,ja,1033,1,0
-1042,한국어,ko-KO,ko,1033,1,0
-3082,Español,es-ES,es,1033,0,0
-1029,繁體中文,zhTW,zh_TW,1033,1
-
-base=0
-combat=0
-creation=0
-prototype=-1
-keys=0
-dictionary=3
-parameters=0
-[outsource]=-6
-[user]=-9
-"""
-    with open(header_path, "w", encoding="utf-8", newline="\n") as header_file:
-        if not header_content.endswith("\n"):
-            header_content += "\n"
-        header_file.write(header_content)
-    print("\nHeader.txt 已創建於:", header_path)
+    # 修改原有的 Header.txt
+    if os.path.exists(header_path):
+        try:
+            with open(header_path, "r", encoding="utf-16 LE") as f:
+                header_lines = f.readlines()
+                
+            # 檢查是否已經存在繁體中文設定，避免重複寫入
+            has_tc_line = any("1029,繁體中文" in line for line in header_lines)
+            
+            if not has_tc_line:
+                new_header_lines = []
+                for line in header_lines:
+                    # 找到簡體中文的行，在其上方插入繁體中文的行
+                    if "2052,简体中文,zh-CN,zh,1033,1" in line:
+                        new_header_lines.append("1029,繁體中文,zhTW,zh_TW,1033,1\n")
+                    new_header_lines.append(line)
+                    
+                with open(header_path, "w", encoding="utf-8", newline="") as f:
+                    f.writelines(new_header_lines)
+                print("\nHeader.txt 已成功修改並加入繁體中文選項。")
+            else:
+                print("\nHeader.txt 已包含繁體中文選項，略過修改。")
+                
+        except Exception as e:
+            print(f"\n修改 Header.txt 時發生錯誤：{e}")
+    else:
+        print(f"\n警告：找不到 {header_path}，無法自動修改語言列表，請手動確認。")
 
     # key [空白] number [空白] value [行尾]
     row_pat = re.compile(r'^([^\t\r\n]+)([\t ]+)(\d+)([\t ]+)(.*?)(\r?\n)?$')
@@ -229,7 +234,7 @@ parameters=0
 def switch_voice(lang="en"):
     """
     僅替換 base.txt 指定鍵的值，保留原分隔與行尾。
-    lang='en' → 英文語音；lang='zh' → 中文語音
+    lang='en' → 英文語音；lang='zh' → 中文語音；lang='ja' → 日文語音
     """
     base_path = r"Locale\1029\base.txt"
     if not os.path.exists(base_path):
@@ -255,7 +260,22 @@ def switch_voice(lang="en"):
         "AudioResPostfix": "-zh",
         "CutsceneBGM0": "Musics/df-cutscene-zh",
     }
-    value_map = value_map_en if lang == "en" else value_map_zh
+    value_map_ja = {
+        "ImageLogo0": "UI/Textures/dsp-logo-en",
+        "ImageLogo1": "UI/Textures/dsp-logo-flat-en",
+        "ImageLogo2": "UI/Textures/dsp-logo-flat-en",
+        "AudioResPostfix": "-ja",
+        "CutsceneBGM0": "Musics/df-cutscene-ja",
+    }
+    
+    if lang == "en":
+        value_map = value_map_en
+    elif lang == "zh":
+        value_map = value_map_zh
+    elif lang == "ja":
+        value_map = value_map_ja
+    else:
+        value_map = value_map_zh # 防呆預設
 
     out_lines = []
     for line in lines:
@@ -274,6 +294,8 @@ def switch_voice(lang="en"):
 
     if lang == "en":
         print("\nbase.txt 已修改為英文語音設定。")
+    elif lang == "ja":
+        print("\nbase.txt 已修改為日文語音設定。")
     else:
         print("\nbase.txt 已恢復為中文語音設定。")
 
