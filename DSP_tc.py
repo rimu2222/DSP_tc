@@ -141,7 +141,7 @@ def run_converter():
     → 套用 replace_list.txt 對第三欄做字串取代，
     → 若 key 在 key_value_list.txt 內，直接覆寫第三欄（最高優先）。
     保留原分隔（空白/Tab）與行尾（LF/CRLF）。
-    修改原有 Header.txt 加入繁體中文語系。
+    修改原有 Header.txt 加入繁體中文語系，並加入防重複檢查。
     """
     converter = opencc.OpenCC('s2twp')
 
@@ -154,20 +154,20 @@ def run_converter():
 
     os.makedirs(output_folder, exist_ok=True)
 
-    # 修改原有的 Header.txt
+    # 修改原有的 Header.txt 邏輯
     if os.path.exists(header_path):
         try:
-            with open(header_path, "r", encoding="utf-16 LE") as f:
+            with open(header_path, "r", encoding="utf-8") as f:
                 header_lines = f.readlines()
                 
-            # 檢查是否已經存在繁體中文設定，避免重複寫入
-            has_tc_line = any("1029,繁體中文" in line for line in header_lines)
+            # 檢查是否已經存在繁體中文設定（只要有 1029 或是 繁體中文 字眼就當作已有）
+            has_tc_line = any("1029," in line or "繁體中文" in line for line in header_lines)
             
             if not has_tc_line:
                 new_header_lines = []
                 for line in header_lines:
                     # 找到簡體中文的行，在其上方插入繁體中文的行
-                    if "2052,简体中文,zh-CN,zh,1033,1" in line:
+                    if "2052,简体中文" in line:
                         new_header_lines.append("1029,繁體中文,zhTW,zh_TW,1033,1\n")
                     new_header_lines.append(line)
                     
@@ -175,7 +175,7 @@ def run_converter():
                     f.writelines(new_header_lines)
                 print("\nHeader.txt 已成功修改並加入繁體中文選項。")
             else:
-                print("\nHeader.txt 已包含繁體中文選項，略過修改。")
+                print("\nHeader.txt 已經包含繁體中文選項，為避免故障已自動略過修改。")
                 
         except Exception as e:
             print(f"\n修改 Header.txt 時發生錯誤：{e}")
